@@ -23,3 +23,6 @@ CREATE TABLE IF NOT EXISTS clicks (
 
 CREATE INDEX IF NOT EXISTS idx_clicks_link_time
 ON clicks(link_id, clicked_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_clicks_link_id
+ON clicks(link_id, id DESC);

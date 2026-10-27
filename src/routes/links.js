@@ -2,8 +2,7 @@ const express = require("express");
 const { randomBytes } = require("node:crypto");
 
 const pool = require("../db/pool");
-const linkSchema = require("../schemas/linkSchema");
-
+const { linkSchema, clickQuerySchema } = require("../schemas/linkSchema");
 const router = express.Router();
 
 router.post("/links", async (req, res) => {
@@ -158,6 +157,75 @@ router.get("/links/:code", async (req, res) => {
     return res.status(500).json({ error: "Internal server error" });
   }
 });
+
+
+router.get("/links/:code/clicks", async (req, res) => {
+  // Validate the short code
+  const codeResult = linkSchema.shape.code.unwrap().safeParse(req.params.code);
+
+  if (!codeResult.success) {
+    return res.status(404).json({ error: "Link not found" });
+  }
+
+  // Validate pagination parameters
+  const queryResult = clickQuerySchema.safeParse(req.query);
+
+  if (!queryResult.success) {
+    return res.status(400).json({
+      error: "Invalid pagination parameters",
+      details: queryResult.error.issues
+    });
+  }
+
+  const { after, limit } = queryResult.data;
+
+  try {
+    // Find the link
+    const linkResult = await pool.query(
+      "SELECT id FROM links WHERE code = $1",
+      [codeResult.data]
+    );
+
+    if (linkResult.rows.length === 0) {
+      return res.status(404).json({ error: "Link not found" });
+    }
+
+    const linkId = linkResult.rows[0].id;
+
+    // Retrieve clicks using keyset pagination
+    const result = await pool.query(
+      `SELECT id, clicked_at, referrer, user_agent
+       FROM clicks
+       WHERE link_id = $1
+       AND ($2::integer IS NULL OR id < $2)
+       ORDER BY id DESC
+       LIMIT $3`,
+      [linkId, after ?? null, limit + 1]
+    );
+
+    // Check whether another page exists
+    const hasMore = result.rows.length > limit;
+
+    const clicks = result.rows.slice(0, limit);
+
+    const nextCursor = hasMore
+      ? String(clicks[clicks.length - 1].id)
+      : null;
+
+    return res.status(200).json({
+      clicks,
+      next_cursor: nextCursor
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      error: "Internal server error"
+    });
+  }
+});
+
 
 router.delete("/links/:code", async (req, res) => {
   const result = linkSchema.shape.code.unwrap().safeParse(req.params.code);

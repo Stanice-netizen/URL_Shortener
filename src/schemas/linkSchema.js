@@ -17,4 +17,13 @@ const linkSchema = z.object({
     .optional()
 });
 
-module.exports = linkSchema;
+const clickQuerySchema = z.object({
+  after: z.coerce.number().int().positive().safe().optional(),
+
+  limit: z.coerce.number().int().min(1).max(100).default(10)
+});
+
+module.exports = {
+  linkSchema,
+  clickQuerySchema
+};
