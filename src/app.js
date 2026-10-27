@@ -10,5 +10,6 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/links", linkRoutes);
+app.use("/", linkRoutes);
 
 module.exports = app;
