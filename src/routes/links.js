@@ -1,5 +1,6 @@
 const express = require("express");
 const { randomBytes } = require("node:crypto");
+const { once } = require("node:events");
 
 const pool = require("../db/pool");
 const { linkSchema, clickQuerySchema } = require("../schemas/linkSchema");
@@ -155,6 +156,104 @@ router.get("/links/:code", async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
+router.get("/links/:code/clicks.csv", async (req, res) => {
+  const codeResult = linkSchema.shape.code.unwrap()
+    .safeParse(req.params.code);
+
+  if (!codeResult.success) {
+    return res.status(404).json({ error: "Link not found" });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    const linkResult = await client.query(
+      "SELECT id FROM links WHERE code = $1",
+      [codeResult.data]
+    );
+
+    if (linkResult.rows.length === 0) {
+      return res.status(404).json({ error: "Link not found" });
+    }
+
+    const linkId = linkResult.rows[0].id;
+
+    // CSV formatting, including quotes and commas
+    const csvValue = (value) => {
+      if (value === null || value === undefined) return "";
+
+      const text = String(value);
+
+      // Prevent spreadsheet formula injection
+      const safe = /^[=+\-@\t\r\n]/.test(text)
+        ? "'" + text
+        : text;
+
+      return `"${safe.replace(/"/g, '""')}"`;
+    };
+
+    res.status(200);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${codeResult.data}-clicks.csv"`
+    );
+
+    res.write("id,clicked_at,referrer,user_agent\r\n");
+
+    // Fetch small batches rather than loading every click
+    let lastId = 0;
+    const batchSize = 100;
+
+    while (true) {
+      const result = await client.query(
+        `SELECT id, clicked_at, referrer, user_agent
+         FROM clicks
+         WHERE link_id = $1 AND id > $2
+         ORDER BY id ASC
+         LIMIT $3`,
+        [linkId, lastId, batchSize]
+      );
+
+      if (result.rows.length === 0) break;
+
+      for (const click of result.rows) {
+        const line = [
+          click.id,
+          click.clicked_at.toISOString(),
+          click.referrer,
+          click.user_agent
+        ].map(csvValue).join(",") + "\r\n";
+
+        if (!res.write(line)) {
+          await once(res, "drain");
+        }
+      }
+
+      lastId = result.rows[result.rows.length - 1].id;
+
+      if (result.rows.length < batchSize) break;
+    }
+
+    return res.end();
+
+  } catch (error) {
+    console.error(error);
+
+    if (res.headersSent) {
+      return res.destroy(error);
+    }
+
+    return res.status(500).json({
+      error: "Internal server error"
+    });
+
+  } finally {
+    client.release();
   }
 });
 
