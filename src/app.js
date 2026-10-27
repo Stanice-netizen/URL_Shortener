@@ -9,7 +9,6 @@ app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });
 });
 
-app.use("/links", linkRoutes);
 app.use("/", linkRoutes);
 
 module.exports = app;
