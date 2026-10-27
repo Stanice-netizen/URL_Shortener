@@ -6,7 +6,7 @@ const linkSchema = require("../schemas/linkSchema");
 
 const router = express.Router();
 
-router.post("/", async (req, res) => {
+router.post("/links", async (req, res) => {
   const result = linkSchema.safeParse(req.body);
 
   if (!result.success) {
@@ -129,6 +129,58 @@ router.get("/:code", async (req, res) => {
 
   } finally {
     client.release();
+  }
+});
+
+router.get("/links/:code", async (req, res) => {
+  const result = linkSchema.shape.code.unwrap().safeParse(req.params.code);
+
+  if (!result.success) {
+    return res.status(404).json({ error: "Link not found" });
+  }
+
+  try {
+    const response = await pool.query(
+      `SELECT code, target_url, created_at, expires_at, click_count
+       FROM links
+       WHERE code = $1`,
+      [result.data]
+    );
+
+    if (response.rows.length === 0) {
+      return res.status(404).json({ error: "Link not found" });
+    }
+
+    return res.status(200).json(response.rows[0]);
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.delete("/links/:code", async (req, res) => {
+  const result = linkSchema.shape.code.unwrap().safeParse(req.params.code);
+
+  if (!result.success) {
+    return res.status(404).json({ error: "Link not found" });
+  }
+
+  try {
+    const response = await pool.query(
+      "DELETE FROM links WHERE code = $1 RETURNING id",
+      [result.data]
+    );
+
+    if (response.rowCount === 0) {
+      return res.status(404).json({ error: "Link not found" });
+    }
+
+    return res.status(204).send();
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
