@@ -1,0 +1,216 @@
+
+openapi: 3.0.3
+
+info:
+  title: URL Shortener API
+  version: 1.0.0
+  description: A REST API for shortening URLs and tracking clicks.
+
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+
+components:
+  schemas:
+    LinkInput:
+      type: object
+      required:
+        - target_url
+      properties:
+        target_url:
+          type: string
+          format: uri
+          description: A valid HTTP or HTTPS URL
+          example: https://example.com
+        code:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{3,16}$'
+          example: my-link
+        expires_at:
+          type: string
+          format: date-time
+          description: Optional future expiry date
+
+    Link:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        target_url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        click_count:
+          type: integer
+
+    Click:
+      type: object
+      properties:
+        id:
+          type: integer
+        clicked_at:
+          type: string
+          format: date-time
+        referrer:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+          nullable: true
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+paths:
+  /health:
+    get:
+      summary: Check API health
+      responses:
+        '200':
+          description: API is running
+
+  /links:
+    post:
+      summary: Create a short link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkInput'
+      responses:
+        '201':
+          description: Link created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Link'
+        '400':
+          description: Invalid input
+        '409':
+          description: Short code already taken
+
+  /{code}:
+    get:
+      summary: Redirect to the original URL
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect successful
+          headers:
+            Location:
+              schema:
+                type: string
+        '404':
+          description: Link not found
+        '410':
+          description: Link expired
+
+  /links/{code}:
+    get:
+      summary: Retrieve link metadata
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Link metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Link'
+        '404':
+          description: Link not found
+
+    delete:
+      summary: Delete a link and its clicks
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Link deleted successfully
+        '404':
+          description: Link not found
+
+  /links/{code}/clicks:
+    get:
+      summary: Retrieve paginated click history
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+          description: Cursor from the previous response
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: Paginated click history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clicks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Click'
+                  next_cursor:
+                    type: string
+                    nullable: true
+        '400':
+          description: Invalid pagination parameters
+        '404':
+          description: Link not found
+
+  /links/{code}/clicks.csv:
+    get:
+      summary: Export click history as CSV
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Streamed CSV export
+          content:
+            text/csv:
+              schema:
+                type: string
+        '404':
+          description: Link not found
