@@ -15,6 +15,18 @@ const findLink = async (client, code) => {
   return result.rows[0]
 }
 
+const validateLinkCode = (req, res, next) => {
+  const result = linkSchema.shape.code.unwrap()
+    .safeParse(req.params.code)
+
+  if (!result.success) {
+    return res.status(404).json({ error: 'Link not found' })
+  }
+
+  req.shortCode = result.data
+  next()
+}
+
 router.post('/links', async (req, res) => {
   const result = linkSchema.safeParse(req.body)
 
@@ -141,19 +153,13 @@ router.get('/:code', async (req, res) => {
   }
 })
 
-router.get('/links/:code', async (req, res) => {
-  const result = linkSchema.shape.code.unwrap().safeParse(req.params.code)
-
-  if (!result.success) {
-    return res.status(404).json({ error: 'Link not found' })
-  }
-
+router.get('/links/:code', validateLinkCode, async (req, res) => {
   try {
     const response = await pool.query(
       `SELECT code, target_url, created_at, expires_at, click_count
        FROM links
        WHERE code = $1`,
-      [result.data]
+      [req.shortCode]
     )
 
     if (response.rows.length === 0) {
@@ -167,18 +173,11 @@ router.get('/links/:code', async (req, res) => {
   }
 })
 
-router.get('/links/:code/clicks.csv', async (req, res) => {
-  const codeResult = linkSchema.shape.code.unwrap()
-    .safeParse(req.params.code)
-
-  if (!codeResult.success) {
-    return res.status(404).json({ error: 'Link not found' })
-  }
-
+router.get('/links/:code/clicks.csv', validateLinkCode, async (req, res) => {
   const client = await pool.connect()
 
   try {
-    const link = await findLink(client, codeResult.data)
+    const link = await findLink(client, req.shortCode)
 
     if (!link) {
       return res.status(404).json({ error: 'Link not found' })
@@ -204,7 +203,7 @@ router.get('/links/:code/clicks.csv', async (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${codeResult.data}-clicks.csv"`
+      `attachment; filename="${req.shortCode}-clicks.csv"`
     )
 
     res.write('id,clicked_at,referrer,user_agent\r\n')
@@ -259,14 +258,7 @@ router.get('/links/:code/clicks.csv', async (req, res) => {
   }
 })
 
-router.get('/links/:code/clicks', async (req, res) => {
-  // Validate the short code
-  const codeResult = linkSchema.shape.code.unwrap().safeParse(req.params.code)
-
-  if (!codeResult.success) {
-    return res.status(404).json({ error: 'Link not found' })
-  }
-
+router.get('/links/:code/clicks', validateLinkCode, async (req, res) => {
   // Validate pagination parameters
   const queryResult = clickQuerySchema.safeParse(req.query)
 
@@ -281,7 +273,7 @@ router.get('/links/:code/clicks', async (req, res) => {
 
   try {
     // Find the link
-    const link = await findLink(pool, codeResult.data)
+    const link = await findLink(pool, req.shortCode)
 
     if (!link) {
       return res.status(404).json({ error: 'Link not found' })
@@ -322,17 +314,11 @@ router.get('/links/:code/clicks', async (req, res) => {
   }
 })
 
-router.delete('/links/:code', async (req, res) => {
-  const result = linkSchema.shape.code.unwrap().safeParse(req.params.code)
-
-  if (!result.success) {
-    return res.status(404).json({ error: 'Link not found' })
-  }
-
+router.delete('/links/:code', validateLinkCode, async (req, res) => {
   try {
     const response = await pool.query(
       'DELETE FROM links WHERE code = $1 RETURNING id',
-      [result.data]
+      [req.shortCode]
     )
 
     if (response.rowCount === 0) {
