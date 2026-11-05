@@ -6,6 +6,15 @@ const pool = require('../db/pool')
 const { linkSchema, clickQuerySchema } = require('../schemas/linkSchema')
 const router = express.Router()
 
+const findLink = async (client, code) => {
+  const result = await client.query(
+    'SELECT id FROM links WHERE code = $1',
+    [code]
+  )
+
+  return result.rows[0]
+}
+
 router.post('/links', async (req, res) => {
   const result = linkSchema.safeParse(req.body)
 
@@ -169,16 +178,13 @@ router.get('/links/:code/clicks.csv', async (req, res) => {
   const client = await pool.connect()
 
   try {
-    const linkResult = await client.query(
-      'SELECT id FROM links WHERE code = $1',
-      [codeResult.data]
-    )
+    const link = await findLink(client, codeResult.data)
 
-    if (linkResult.rows.length === 0) {
+    if (!link) {
       return res.status(404).json({ error: 'Link not found' })
     }
 
-    const linkId = linkResult.rows[0].id
+    const linkId = link.id
 
     // CSV formatting, including quotes and commas
     const csvValue = (value) => {
@@ -275,16 +281,13 @@ router.get('/links/:code/clicks', async (req, res) => {
 
   try {
     // Find the link
-    const linkResult = await pool.query(
-      'SELECT id FROM links WHERE code = $1',
-      [codeResult.data]
-    )
+    const link = await findLink(pool, codeResult.data)
 
-    if (linkResult.rows.length === 0) {
+    if (!link) {
       return res.status(404).json({ error: 'Link not found' })
     }
 
-    const linkId = linkResult.rows[0].id
+    const linkId = link.id
 
     // Retrieve clicks using keyset pagination
     const result = await pool.query(
