@@ -1,98 +1,100 @@
-const express = require("express");
-const { randomBytes } = require("node:crypto");
-const { once } = require("node:events");
+const express = require('express')
+const { randomBytes } = require('node:crypto')
+const { once } = require('node:events')
 
-const pool = require("../db/pool");
-const { linkSchema, clickQuerySchema } = require("../schemas/linkSchema");
-const router = express.Router();
+const pool = require('../db/pool')
+const { linkSchema, clickQuerySchema } = require('../schemas/linkSchema')
+const router = express.Router()
 
-router.post("/links", async (req, res) => {
-  const result = linkSchema.safeParse(req.body);
+router.post('/links', async (req, res) => {
+  const result = linkSchema.safeParse(req.body)
 
   if (!result.success) {
     return res.status(400).json({
-      error: "Invalid input",
+      error: 'Invalid input',
       details: result.error.issues
-    });
+    })
   }
 
-  const { target_url, code, expires_at } = result.data;
+  const {
+    target_url: targetUrl,
+    code,
+    expires_at: expiresAt
+  } = result.data
 
-  const shortCode = code || randomBytes(6).toString("base64url");
+  const shortCode = code || randomBytes(6).toString('base64url')
 
   try {
     const query = `
       INSERT INTO links (code, target_url, expires_at)
       VALUES ($1, $2, $3)
       RETURNING *
-    `;
+    `
 
     const values = [
       shortCode,
-      target_url,
-      expires_at || null
-    ];
+      targetUrl,
+      expiresAt || null
+    ]
 
-    const response = await pool.query(query, values);
+    const response = await pool.query(query, values)
 
-    return res.status(201).json(response.rows[0]);
-
+    return res.status(201).json(response.rows[0])
   } catch (error) {
-    if (error.code === "23505") {
+    if (error.code === '23505') {
       return res.status(409).json({
-        error: "Short code already taken"
-      });
+        error: 'Short code already taken'
+      })
     }
 
-    console.error(error);
+    console.error(error)
 
     return res.status(500).json({
-      error: "Internal server error"
-    });
+      error: 'Internal server error'
+    })
   }
-});
+})
 
-
-router.get("/:code", async (req, res) => {
-  const { code } = req.params;
+router.get('/:code', async (req, res) => {
+  const { code } = req.params
 
   // Validate the short code
-  const codeResult = linkSchema.shape.code.unwrap().safeParse(code);
+  const codeResult = linkSchema.shape.code.unwrap().safeParse(code)
 
   if (!codeResult.success) {
     return res.status(404).json({
-      error: "Link not found"
-    });
+      error: 'Link not found'
+    })
   }
 
-  const client = await pool.connect();
+  const client = await pool.connect()
 
   try {
-    await client.query("BEGIN");
+    await client.query('BEGIN')
 
     // Find the link and lock it during the transaction
     const result = await client.query(
-      "SELECT * FROM links WHERE code = $1 FOR UPDATE",
+      'SELECT * FROM links WHERE code = $1 FOR UPDATE',
       [codeResult.data]
-    );
+    )
 
     if (result.rows.length === 0) {
-      await client.query("ROLLBACK");
+      await client.query('ROLLBACK')
 
       return res.status(404).json({
-        error: "Link not found"
-      });
+        error: 'Link not found'
+      })
     }
 
-    const link = result.rows[0];
+    const link = result.rows[0]
 
     // Check whether the link has expired
     if (link.expires_at && new Date(link.expires_at) <= new Date()) {
-      await client.query("ROLLBACK");
+      await client.query('ROLLBACK')
 
       return res.status(410).json({
-        error: "This link has expired"
-      });
+        error: 'This link has expired'
+      })
     }
 
     // Record the click
@@ -101,10 +103,10 @@ router.get("/:code", async (req, res) => {
        VALUES ($1, $2, $3)`,
       [
         link.id,
-        req.get("referer") || null,
-        req.get("user-agent") || null
+        req.get('referer') || null,
+        req.get('user-agent') || null
       ]
-    );
+    )
 
     // Atomic increment
     await client.query(
@@ -112,31 +114,29 @@ router.get("/:code", async (req, res) => {
        SET click_count = click_count + 1
        WHERE id = $1`,
       [link.id]
-    );
+    )
 
-    await client.query("COMMIT");
+    await client.query('COMMIT')
 
-    return res.redirect(302, link.target_url);
-
+    return res.redirect(302, link.target_url)
   } catch (error) {
-    await client.query("ROLLBACK");
+    await client.query('ROLLBACK')
 
-    console.error(error);
+    console.error(error)
 
     return res.status(500).json({
-      error: "Internal server error"
-    });
-
+      error: 'Internal server error'
+    })
   } finally {
-    client.release();
+    client.release()
   }
-});
+})
 
-router.get("/links/:code", async (req, res) => {
-  const result = linkSchema.shape.code.unwrap().safeParse(req.params.code);
+router.get('/links/:code', async (req, res) => {
+  const result = linkSchema.shape.code.unwrap().safeParse(req.params.code)
 
   if (!result.success) {
-    return res.status(404).json({ error: "Link not found" });
+    return res.status(404).json({ error: 'Link not found' })
   }
 
   try {
@@ -145,69 +145,67 @@ router.get("/links/:code", async (req, res) => {
        FROM links
        WHERE code = $1`,
       [result.data]
-    );
+    )
 
     if (response.rows.length === 0) {
-      return res.status(404).json({ error: "Link not found" });
+      return res.status(404).json({ error: 'Link not found' })
     }
 
-    return res.status(200).json(response.rows[0]);
-
+    return res.status(200).json(response.rows[0])
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: "Internal server error" });
+    console.error(error)
+    return res.status(500).json({ error: 'Internal server error' })
   }
-});
+})
 
-
-router.get("/links/:code/clicks.csv", async (req, res) => {
+router.get('/links/:code/clicks.csv', async (req, res) => {
   const codeResult = linkSchema.shape.code.unwrap()
-    .safeParse(req.params.code);
+    .safeParse(req.params.code)
 
   if (!codeResult.success) {
-    return res.status(404).json({ error: "Link not found" });
+    return res.status(404).json({ error: 'Link not found' })
   }
 
-  const client = await pool.connect();
+  const client = await pool.connect()
 
   try {
     const linkResult = await client.query(
-      "SELECT id FROM links WHERE code = $1",
+      'SELECT id FROM links WHERE code = $1',
       [codeResult.data]
-    );
+    )
 
     if (linkResult.rows.length === 0) {
-      return res.status(404).json({ error: "Link not found" });
+      return res.status(404).json({ error: 'Link not found' })
     }
 
-    const linkId = linkResult.rows[0].id;
+    const linkId = linkResult.rows[0].id
 
     // CSV formatting, including quotes and commas
     const csvValue = (value) => {
-      if (value === null || value === undefined) return "";
+      if (value === null || value === undefined) return ''
 
-      const text = String(value);
+      const text = String(value)
 
       // Prevent spreadsheet formula injection
       const safe = /^[=+\-@\t\r\n]/.test(text)
         ? "'" + text
-        : text;
+        : text
 
-      return `"${safe.replace(/"/g, '""')}"`;
-    };
+      return `"${safe.replace(/"/g, '""')}"`
+    }
 
-    res.status(200);
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.status(200)
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader(
-      "Content-Disposition",
+      'Content-Disposition',
       `attachment; filename="${codeResult.data}-clicks.csv"`
-    );
+    )
 
-    res.write("id,clicked_at,referrer,user_agent\r\n");
+    res.write('id,clicked_at,referrer,user_agent\r\n')
 
     // Fetch small batches rather than loading every click
-    let lastId = 0;
-    const batchSize = 100;
+    let lastId = 0
+    const batchSize = 100
 
     while (true) {
       const result = await client.query(
@@ -217,9 +215,9 @@ router.get("/links/:code/clicks.csv", async (req, res) => {
          ORDER BY id ASC
          LIMIT $3`,
         [linkId, lastId, batchSize]
-      );
+      )
 
-      if (result.rows.length === 0) break;
+      if (result.rows.length === 0) break
 
       for (const click of result.rows) {
         const line = [
@@ -227,69 +225,66 @@ router.get("/links/:code/clicks.csv", async (req, res) => {
           click.clicked_at.toISOString(),
           click.referrer,
           click.user_agent
-        ].map(csvValue).join(",") + "\r\n";
+        ].map(csvValue).join(',') + '\r\n'
 
         if (!res.write(line)) {
-          await once(res, "drain");
+          await once(res, 'drain')
         }
       }
 
-      lastId = result.rows[result.rows.length - 1].id;
+      lastId = result.rows[result.rows.length - 1].id
 
-      if (result.rows.length < batchSize) break;
+      if (result.rows.length < batchSize) break
     }
 
-    return res.end();
-
+    return res.end()
   } catch (error) {
-    console.error(error);
+    console.error(error)
 
     if (res.headersSent) {
-      return res.destroy(error);
+      return res.destroy(error)
     }
 
     return res.status(500).json({
-      error: "Internal server error"
-    });
-
+      error: 'Internal server error'
+    })
   } finally {
-    client.release();
+    client.release()
   }
-});
+})
 
-
-router.get("/links/:code/clicks", async (req, res) => {
+router.get('/links/:code/clicks', async (req, res) => {
   // Validate the short code
-  const codeResult = linkSchema.shape.code.unwrap().safeParse(req.params.code);
+  const codeResult = linkSchema.shape.code.unwrap().safeParse(req.params.code)
 
   if (!codeResult.success) {
-    return res.status(404).json({ error: "Link not found" });
+    return res.status(404).json({ error: 'Link not found' })
   }
 
   // Validate pagination parameters
-  const queryResult = clickQuerySchema.safeParse(req.query);
+  const queryResult = clickQuerySchema.safeParse(req.query)
 
   if (!queryResult.success) {
     return res.status(400).json({
-      error: "Invalid pagination parameters",
+      error: 'Invalid pagination parameters',
       details: queryResult.error.issues
-    });
+    })
   }
 
-  const { after, limit } = queryResult.data;
+  const { after, limit } = queryResult.data
 
   try {
     // Find the link
     const linkResult = await pool.query(
-      "SELECT id FROM links WHERE code = $1",
+      'SELECT id FROM links WHERE code = $1',
       [codeResult.data]
-    );
+    )
 
     if (linkResult.rows.length === 0) {
-      return res.status(404).json({ error: "Link not found" });
+      return res.status(404).json({ error: 'Link not found' })
     }
 
-    const linkId = linkResult.rows[0].id;
+    const linkId = linkResult.rows[0].id
 
     // Retrieve clicks using keyset pagination
     const result = await pool.query(
@@ -300,55 +295,52 @@ router.get("/links/:code/clicks", async (req, res) => {
        ORDER BY id DESC
        LIMIT $3`,
       [linkId, after ?? null, limit + 1]
-    );
+    )
 
     // Check whether another page exists
-    const hasMore = result.rows.length > limit;
+    const hasMore = result.rows.length > limit
 
-    const clicks = result.rows.slice(0, limit);
+    const clicks = result.rows.slice(0, limit)
 
     const nextCursor = hasMore
       ? String(clicks[clicks.length - 1].id)
-      : null;
+      : null
 
     return res.status(200).json({
       clicks,
       next_cursor: nextCursor
-    });
-
+    })
   } catch (error) {
-    console.error(error);
+    console.error(error)
 
     return res.status(500).json({
-      error: "Internal server error"
-    });
+      error: 'Internal server error'
+    })
   }
-});
+})
 
-
-router.delete("/links/:code", async (req, res) => {
-  const result = linkSchema.shape.code.unwrap().safeParse(req.params.code);
+router.delete('/links/:code', async (req, res) => {
+  const result = linkSchema.shape.code.unwrap().safeParse(req.params.code)
 
   if (!result.success) {
-    return res.status(404).json({ error: "Link not found" });
+    return res.status(404).json({ error: 'Link not found' })
   }
 
   try {
     const response = await pool.query(
-      "DELETE FROM links WHERE code = $1 RETURNING id",
+      'DELETE FROM links WHERE code = $1 RETURNING id',
       [result.data]
-    );
+    )
 
     if (response.rowCount === 0) {
-      return res.status(404).json({ error: "Link not found" });
+      return res.status(404).json({ error: 'Link not found' })
     }
 
-    return res.status(204).send();
-
+    return res.status(204).send()
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: "Internal server error" });
+    console.error(error)
+    return res.status(500).json({ error: 'Internal server error' })
   }
-});
+})
 
-module.exports = router;
+module.exports = router
