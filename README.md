@@ -85,9 +85,9 @@ I built this project to make sharing links easier. It allows users to convert lo
 
 ## 🔗 Live Demo
 
-Backend API: Not deployed yet.
-API Documentation: `http://localhost:3000/docs`
-Health Check: `http://localhost:3000/health`
+Backend API: https://url-shortener-api-bzog.onrender.com
+API Documentation: `https://url-shortener-api-bzog.onrender.com/docs`
+Health Check: `https://url-shortener-api-bzog.onrender.com/health`
 
 ---
 
@@ -176,7 +176,6 @@ Future Improvements
 - Implement rate limiting.
 - Add a background process to handle expired links.
 - Generate QR codes for short URLs.
-- Deploy the API.
 
 ---
 

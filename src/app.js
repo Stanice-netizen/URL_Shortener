@@ -4,6 +4,7 @@ const YAML = require('yamljs')
 const path = require('node:path')
 
 const linkRoutes = require('./routes/links')
+const pool = require('./db/pool')
 
 const app = express()
 
@@ -18,11 +19,31 @@ const swaggerDocument = YAML.load(
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument))
 
 // Health check
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' })
+app.get('/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1')
+    res.status(200).json({ status: 'ok' })
+  } catch (error) {
+    res.status(503).json({ status: 'error', error: 'Database unavailable' })
+  }
 })
 
 // API routes
 app.use('/', linkRoutes)
+
+// JSON error handling
+app.use((err, req, res, next) => {
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({
+      error: 'Invalid JSON payload'
+    })
+  }
+
+  const status = err.status || 500
+
+  res.status(status).json({
+    error: status >= 500 ? 'Internal server error' : err.message
+  })
+})
 
 module.exports = app

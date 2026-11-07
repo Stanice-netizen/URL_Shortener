@@ -79,13 +79,35 @@ test('rejects an invalid URL', async () => {
 })
 
 // TEST 3
+test('rejects reserved short codes', async () => {
+  const reservedCodes = ['health', 'docs', 'links']
+
+  for (const code of reservedCodes) {
+    const response = await createLink(code)
+
+    assert.equal(response.status, 400)
+  }
+})
+
+// TEST 4
+test('rejects reserved short codes regardless of case', async () => {
+  const reservedCodes = ['HEALTH', 'Docs', 'LINKS']
+
+  for (const code of reservedCodes) {
+    const response = await createLink(code)
+
+    assert.equal(response.status, 400)
+  }
+})
+
+// TEST 5
 test('rejects duplicate codes', async () => {
   const response = await createLink('test-link')
 
   assert.equal(response.status, 409)
 })
 
-// TEST 4
+// TEST 6
 test('redirects correctly', async () => {
   const response = await fetch(`${baseUrl}/test-link`, {
     redirect: 'manual'
@@ -95,7 +117,7 @@ test('redirects correctly', async () => {
   assert.equal(response.headers.get('location'), 'https://example.com')
 })
 
-// TEST 5
+// TEST 7
 test('returns 404 for unknown links', async () => {
   const response = await fetch(`${baseUrl}/unknown123`, {
     redirect: 'manual'
@@ -104,7 +126,7 @@ test('returns 404 for unknown links', async () => {
   assert.equal(response.status, 404)
 })
 
-// TEST 6
+// TEST 8
 test('returns 410 for expired links', async () => {
   await createLink('old-link')
 
@@ -127,7 +149,7 @@ test('returns 410 for expired links', async () => {
   assert.equal(result.rows[0].click_count, 0)
 })
 
-// TEST 7: CONCURRENCY
+// TEST 9: CONCURRENCY
 test('records concurrent clicks without losing updates', async () => {
   await createLink('counter-test')
 
@@ -162,7 +184,7 @@ test('records concurrent clicks without losing updates', async () => {
   assert.equal(clicks.rows[0].total, totalClicks)
 })
 
-// TEST 8: SECURITY
+// TEST 10: SECURITY
 test('rejects SQL injection attempts safely', async () => {
   const maliciousCode = "abc' OR '1'='1"
 
@@ -179,7 +201,7 @@ test('rejects SQL injection attempts safely', async () => {
   assert.equal(result.rows[0].total, 1)
 })
 
-// TEST 9
+// TEST 11
 test('returns link metadata', async () => {
   const response = await fetch(`${baseUrl}/links/test-link`)
 
@@ -191,7 +213,7 @@ test('returns link metadata', async () => {
   assert.equal(data.target_url, 'https://example.com')
 })
 
-// TEST 10
+// TEST 12
 test('deletes a link and its clicks', async () => {
   const response = await fetch(`${baseUrl}/links/counter-test`, {
     method: 'DELETE'
@@ -212,4 +234,29 @@ test('deletes a link and its clicks', async () => {
 
   // Only the earlier test-link redirect should remain
   assert.equal(clicks.rows[0].total, 1)
+})
+
+// TEST 13
+test('returns JSON for malformed request bodies', async () => {
+  const response = await fetch(`${baseUrl}/links`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{bad'
+  })
+
+  const data = await response.json()
+
+  assert.equal(response.status, 400)
+  assert.match(response.headers.get('content-type'), /application\/json/)
+  assert.equal(data.error, 'Invalid JSON payload')
+  assert.equal(data.stack, undefined)
+})
+
+// TEST 14
+test('checks database connection through health endpoint', async () => {
+  const response = await fetch(`${baseUrl}/health`)
+  const data = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(data, { status: 'ok' })
 })
