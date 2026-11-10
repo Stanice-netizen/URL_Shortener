@@ -1,3 +1,4 @@
+
 const express = require('express')
 const swaggerUi = require('swagger-ui-express')
 const YAML = require('yamljs')
@@ -23,7 +24,7 @@ app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1')
     res.status(200).json({ status: 'ok' })
-  } catch (error) {
+  } catch (_error) {
     res.status(503).json({ status: 'error', error: 'Database unavailable' })
   }
 })
@@ -32,7 +33,7 @@ app.get('/health', async (req, res) => {
 app.use('/', linkRoutes)
 
 // JSON error handling
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   if (err.type === 'entity.parse.failed') {
     return res.status(400).json({
       error: 'Invalid JSON payload'
